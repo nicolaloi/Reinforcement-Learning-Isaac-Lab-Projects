@@ -1,0 +1,2 @@
+from .config.legged_rough import LEGGED_ROUGH_TERRAINS_CFG
+from .config.quadcopter_rough import QUADCOPTER_ROUGH_TERRAINS_CFG, QUADCOPTER_ROUGH_TERRAINS_CFG_FACTORY

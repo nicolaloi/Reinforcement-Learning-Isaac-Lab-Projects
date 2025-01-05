@@ -1,0 +1,1 @@
+The scripts present in this folder are calling the `isaaclab.sh` script (which is located inside the root directory of the Isaac Lab repository). They assumme to find `isaaclab.sh` in their same directory. Hence, you should move these scripts inside the root folder of Isaac Lab (or modify them to point to the correct path of `isaaclab.sh`).
