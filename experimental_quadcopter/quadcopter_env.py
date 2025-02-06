@@ -73,21 +73,23 @@ class EventCfg:
 class QuadcopterEnvCfg(DirectRLEnvCfg):
     # env
     episode_length_s = 7.5
+    dt= 1 / 50
     decimation = 2
     action_space = 4
-    observation_space = 42
+    observation_space = 59
     state_space = 0
     debug_vis = True
     size_terrain = 25.0
     objects_density_min = 0.17
     objects_density_max = 0.7
     random_respawn = False
+    avoid_reset_spikes_in_training = True
 
     ui_window_class_type = QuadcopterEnvWindow
 
     # simulation
     sim: SimulationCfg = SimulationCfg(
-        dt=1 / 50,
+        dt=dt,
         render_interval=decimation,
         disable_contact_processing=True,
         physics_material=sim_utils.RigidBodyMaterialCfg(
@@ -134,19 +136,19 @@ class QuadcopterEnvCfg(DirectRLEnvCfg):
                                            replace(spawn = CRAZYFLIE_CFG.spawn.replace(activate_contact_sensors=True))
     simple_lidar = RayCasterCfg(
         prim_path="/World/envs/env_.*/Robot/body",
-        update_period=0.02,
+        update_period= dt * decimation,
         offset=RayCasterCfg.OffsetCfg(pos=(0.0, 0.0, 0.01)),
         max_distance=15,
         attach_yaw_only=False,
-        pattern_cfg=patterns.LidarPatternCfg(channels=1, vertical_fov_range=(0.0, 0.0), 
-                                             horizontal_fov_range=(-70.0, 70.0),
-                                             horizontal_res=4.99),
+        pattern_cfg=patterns.LidarPatternCfg(channels=1, vertical_fov_range=(-0.0, 0.0), 
+                                             horizontal_fov_range=(-90.0, 90.0),
+                                             horizontal_res=3.99),
         debug_vis=False,
         mesh_prim_paths=["/World/ground"],
     )
     scaling_lidar_data_b = 1/6.0
     contact_sensor: ContactSensorCfg = ContactSensorCfg(
-        prim_path="/World/envs/env_.*/Robot/.*", history_length=2, update_period=0.02, track_air_time=False
+        prim_path="/World/envs/env_.*/Robot/.*", history_length=2, update_period= dt, track_air_time=False
     )
     # contact_forces = ContactSensorCfg(
     #     prim_path="{ENV_REGEX_NS}/Robot/.*_FOOT", update_period=0.0, history_length=6, debug_vis=True
@@ -156,28 +158,34 @@ class QuadcopterEnvCfg(DirectRLEnvCfg):
     moment_scale = 0.01
     
     # task
-    desired_pos_b_height_limits = (2.0, 3.0)
+    desired_pos_w_height_limits = (2.0, 3.0)
     desired_pos_b_xy_limits = (size_terrain/2-1.0, size_terrain/2)
     desired_pos_b_obs_clip = 4.0
     height_w_limits = (0.5, 4.5)
     lin_vel_max_soft_thresh = 0
-    ang_vel_final_dist_goal_thresh = 0.5
+    ang_vel_final_dist_goal_thresh = 0.3
     progress_to_goal_std = math.sqrt(0.1)
     distance_to_goal_std = math.sqrt(1.25)
     distance_to_goal_fine_std = math.sqrt(0.3)
     threshold_obstacle_proximity = 0.4
+    threshold_height_bounds_proximity = 0.3
+    height_w_soft_limits = (
+        height_w_limits[0] + threshold_height_bounds_proximity,
+        height_w_limits[1] - threshold_height_bounds_proximity)
 
     # reward scales
-    lin_vel_reward_scale = -0.1
+    lin_vel_reward_scale = -0.018
     ang_vel_reward_scale = -0.06
     ang_vel_final_reward_scale = -0.2
     actions_reward_scale = -0.2
-    progress_to_goal_reward_scale = 3.0
+    progress_to_goal_reward_scale = 2.0
     distance_to_goal_reward_scale = 1.0
     distance_to_goal_fine_reward_scale = 0.7
     undesired_contacts_reward_scale = -4.0
     flat_orientation_reward_scale = -1.0
-    obstacle_proximity_reward_scale = -2.0
+    obstacle_proximity_reward_scale = -6.0
+    height_bounds_proximity_reward_scale = -4.0
+    terminated_reward_scale = -200.0
 
 
 class QuadcopterEnv(DirectRLEnv):
@@ -208,6 +216,8 @@ class QuadcopterEnv(DirectRLEnv):
                 "undesired_contacts",
                 "flat_orientation",
                 "obstacle_proximity",
+                "height_bounds_proximity",
+                "terminated",
             ]
         }
         # Get specific body indices
@@ -316,8 +326,6 @@ class QuadcopterEnv(DirectRLEnv):
             close_to_goal, distance_to_goal_mapped, torch.zeros_like(distance_to_goal_mapped))
         distance_to_goal_mapped_fine =torch.where(
             close_to_goal, distance_to_goal_mapped_fine, torch.zeros_like(distance_to_goal_mapped_fine))
-        # distance_to_goal_mapped = 1 - torch.tanh(distance_to_goal / (self.cfg.progress_to_goal_std**2))
-        # distance_to_goal_mapped_fine = 1 - torch.tanh(distance_to_goal / (self.cfg.distance_to_goal_fine_std**2))
         # undesired contacts
         ang_vel_final = torch.where(distance_to_goal < self.cfg.ang_vel_final_dist_goal_thresh, ang_vel, torch.zeros_like(ang_vel))
         net_contact_forces = self._contact_sensor.data.net_forces_w_history
@@ -337,7 +345,15 @@ class QuadcopterEnv(DirectRLEnv):
         obstacle_proximity = torch.max(torch.where(simple_lidar_data_b < self.cfg.threshold_obstacle_proximity,
                                          self.cfg.threshold_obstacle_proximity - simple_lidar_data_b,
                                          torch.zeros_like(simple_lidar_data_b)), dim=1)[0]
-
+        # too close to height bounds
+        height_low_bound_proximity = torch.where(self._robot.data.root_state_w[:, 2] < self.cfg.height_w_soft_limits[0],
+                                                self.cfg.height_w_soft_limits[0] - self._robot.data.root_state_w[:, 2],
+                                                torch.zeros_like(self._robot.data.root_state_w[:, 2]))
+        height_high_bound_proximity = torch.where(self._robot.data.root_state_w[:, 2] > self.cfg.height_w_soft_limits[1],
+                                                self._robot.data.root_state_w[:, 2] - self.cfg.height_w_soft_limits[1],
+                                                torch.zeros_like(self._robot.data.root_state_w[:, 2]))
+        height_bounds_proximity = torch.max(height_low_bound_proximity, height_high_bound_proximity)
+        
         rewards = {
             "lin_vel": lin_vel * self.cfg.lin_vel_reward_scale * self.step_dt,
             "ang_vel": ang_vel * self.cfg.ang_vel_reward_scale * self.step_dt,
@@ -348,8 +364,9 @@ class QuadcopterEnv(DirectRLEnv):
             "distance_to_goal_fine": distance_to_goal_mapped_fine * self.cfg.distance_to_goal_fine_reward_scale * self.step_dt,
             "undesired_contacts": undesired_contacts * self.cfg.undesired_contacts_reward_scale * self.step_dt,
             "flat_orientation": flat_orientation * self.cfg.flat_orientation_reward_scale * self.step_dt,
-            "obstacle_proximity": obstacle_proximity * self.cfg.obstacle_proximity_reward_scale * self.step_dt
-,
+            "obstacle_proximity": obstacle_proximity * self.cfg.obstacle_proximity_reward_scale * self.step_dt,
+            "height_bounds_proximity": height_bounds_proximity * self.cfg.height_bounds_proximity_reward_scale * self.step_dt,
+            "terminated": self.reset_terminated * self.cfg.terminated_reward_scale * self.step_dt,
         }
         reward = torch.sum(torch.stack(list(rewards.values())), dim=0)
         # Logging
@@ -359,14 +376,13 @@ class QuadcopterEnv(DirectRLEnv):
 
     def _get_dones(self) -> tuple[torch.Tensor, torch.Tensor]:
         time_out = self.episode_length_buf >= self.max_episode_length - 1
-        net_contact_forces = self._contact_sensor.data.net_forces_w_history
-        died = torch.logical_or(
-            torch.logical_or(
+        out_of_height_bounds = torch.logical_or(
                 self._robot.data.root_link_pos_w[:, 2] < self.cfg.height_w_limits[0],
-                self._robot.data.root_link_pos_w[:, 2] > self.cfg.height_w_limits[1]),
-            torch.any(torch.max(torch.norm(net_contact_forces[:, :, self._undesired_contact_body_ids],
-                                           dim=-1), dim=1)[0] > 0.05, dim=1)
-        )
+                self._robot.data.root_link_pos_w[:, 2] > self.cfg.height_w_limits[1])
+        net_contact_forces = self._contact_sensor.data.net_forces_w_history
+        collided = torch.any(torch.max(torch.norm(net_contact_forces[:, :, self._undesired_contact_body_ids],
+                                           dim=-1), dim=1)[0] > 0.0001, dim=1)
+        died = torch.logical_or(out_of_height_bounds, collided)
         return died, time_out
         
     def _add_uniform_noise(self, data: torch.Tensor, min_noise: float, max_noise: float):
@@ -446,7 +462,7 @@ class QuadcopterEnv(DirectRLEnv):
 
         self._robot.reset(env_ids)
         super()._reset_idx(env_ids)
-        if len(env_ids) == self.num_envs:
+        if self.cfg.avoid_reset_spikes_in_training and len(env_ids) == self.num_envs:
             # Spread out the resets to avoid spikes in training when many environments reset at a similar time
             self.episode_length_buf = torch.randint_like(self.episode_length_buf, high=int(self.max_episode_length))
 
@@ -461,9 +477,8 @@ class QuadcopterEnv(DirectRLEnv):
             # update terrain levels
             self._terrain.update_env_origins(env_ids, move_up, move_down)
         self._desired_pos_w[env_ids, :2] += self._terrain.env_origins[env_ids, :2]
-        self._desired_pos_w[env_ids, 2] = \
-            torch.empty_like(self._desired_pos_w[env_ids, 2]).uniform_(
-                self.cfg.desired_pos_b_height_limits[0], self.cfg.desired_pos_b_height_limits[1])
+        self._desired_pos_w[env_ids, 2] = self._desired_pos_w[env_ids, 2].uniform_(
+                self.cfg.desired_pos_w_height_limits[0], self.cfg.desired_pos_w_height_limits[1])
         # Reset robot state
         joint_pos = self._robot.data.default_joint_pos[env_ids]
         joint_vel = self._robot.data.default_joint_vel[env_ids]
@@ -504,12 +519,13 @@ class QuadcopterEnvCfg_PLAY(QuadcopterEnvCfg):
         # post init of parent
         super().__post_init__()
     
-        self.episode_length_s *= 3
+        self.episode_length_s *= 4
         self.size_terrain *= 4
         self.objects_density_min *= 1
         self.objects_density_max *= 0.8
         self.desired_pos_b_xy_limits = (self.size_terrain/2-1.0, self.size_terrain/2)
         self.random_respawn = True
+        self.avoid_reset_spikes_in_training = False
         
         self.terrain = TerrainImporterCfg(
             prim_path="/World/ground",

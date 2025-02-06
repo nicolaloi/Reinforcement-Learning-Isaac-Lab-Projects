@@ -15,14 +15,14 @@ from omni.isaac.lab_tasks.utils.wrappers.rsl_rl import (
 @configclass
 class QuadcopterPPORunnerCfg(RslRlOnPolicyRunnerCfg):
     num_steps_per_env = 50
-    max_iterations = 10000
+    max_iterations = 100000
     save_interval = 500
     experiment_name = "quadcopter_pose_direct"
     empirical_normalization = False
     policy = RslRlPpoActorCriticCfg(
         init_noise_std=1.0,
-        actor_hidden_dims=[96, 64],
-        critic_hidden_dims=[96, 64],
+        actor_hidden_dims=[128, 64],
+        critic_hidden_dims=[128, 64],
         activation="elu",
     )
     algorithm = RslRlPpoAlgorithmCfg(
@@ -32,7 +32,7 @@ class QuadcopterPPORunnerCfg(RslRlOnPolicyRunnerCfg):
         entropy_coef=0.01,
         num_learning_epochs=5,
         num_mini_batches=4,
-        learning_rate=5.0e-4,
+        learning_rate=1.0e-3,
         schedule="adaptive",
         gamma=0.99,
         lam=0.95,

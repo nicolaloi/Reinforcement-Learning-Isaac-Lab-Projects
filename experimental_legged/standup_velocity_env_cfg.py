@@ -68,7 +68,7 @@ class MySceneCfg(InteractiveSceneCfg):
         prim_path="{ENV_REGEX_NS}/Robot/base",
         offset=CustomRayCasterCfg.OffsetCfg(pos=(0.0, -0.05, 20.0)),
         attach_yaw_only=True,
-        pattern_cfg=patterns.GridPatternCfg(resolution=0.1, size=[0.8, 1.1]),
+        pattern_cfg=patterns.GridPatternCfg(resolution=0.1, size=[0.8, 1.1]), # resolution=0.1, size=[1.6, 1.0]
         debug_vis=False,
         mesh_prim_paths=["/World/ground"],
     )
@@ -76,7 +76,7 @@ class MySceneCfg(InteractiveSceneCfg):
         prim_path="{ENV_REGEX_NS}/Robot/base",
         offset=CustomRayCasterCfg.OffsetCfg(pos=(0.0, 0.0, 20.0)),
         attach_yaw_only=True,
-        pattern_cfg=patterns.GridPatternCfg(resolution=0.1, size=[0.0, 0.0]),
+        pattern_cfg=patterns.GridPatternCfg(resolution=0.1, size=[0.0, 0.0]), # resolution=0.1, size=[1.6, 1.0]
         debug_vis=False,
         mesh_prim_paths=["/World/ground"],
     )
@@ -331,7 +331,7 @@ class RewardsCfg:
     
     action_rate_l2 = RewTerm(func=mdp.action_rate_l2, weight=-0.06)
         
-    is_terminated = RewTerm(func=mdp.is_terminated, weight=-1)
+    is_terminated = RewTerm(func=mdp.is_terminated, weight=-100)
 
 
     # -- joints

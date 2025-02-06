@@ -17,7 +17,7 @@ from .quadcopter_env import QuadcopterEnv, QuadcopterEnvCfg, QuadcopterEnvCfg_PL
 # Register Gym environments.
 ##
 
-experimental_quadcopter_parent_folder = str(Path(__file__).parent.parent)
+experimental_quadcopter_parent_folder = str(Path(__file__).parent.parent.stem)
 
 gym.register(
     id="Isaac-Experimental-Quadcopter-Forest-Pose-Direct-v0",

@@ -99,7 +99,7 @@ class RewardsCfg:
     )
     
     track_pose_fine = RewTerm(
-        func=mdp.track_pose_command_if_feet_up, weight=0.5,
+        func=mdp.track_pose_command_if_feet_up, weight=1.0,
         params={"track_func_reward": mdp.position_command_error_tanh, "in_air_min": 0.5,
                 "command_name": "pose_command", "std": math.sqrt(0.2),
                 "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*F_FOOT")}
@@ -111,8 +111,10 @@ class RewardsCfg:
                 "command_name": "pose_command", "std": None,
                 "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*F_FOOT")}
     )
-    
-    terminated = RewTerm(func=mdp.is_terminated, weight=-10.0)
+
+    action_rate_l2 = RewTerm(func=mdp.action_rate_l2, weight=-0.15)
+
+    terminated = RewTerm(func=mdp.is_terminated, weight=-25.0)
 
 @configclass
 class TerminationsCfg:
